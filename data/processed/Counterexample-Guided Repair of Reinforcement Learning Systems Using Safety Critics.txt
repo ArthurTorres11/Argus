@@ -1,0 +1,446 @@
+arXiv:2405.15430v1  [cs.LG]  24 May 2024
+Counterexample-Guided Repair of Reinforcement
+Learning Systems Using Safety Critics
+David Boetius [0000− 0002− 9071− 1695] and Stefan Leue [0000− 0002− 4259− 624X]
+University of Konstanz, 78457 Konstanz, Germany
+{david.boetius,stefan.leue}@uni-konstanz.de
+Abstract. Naïvely trained Deep Reinforcement Learning agents may
+fail to satisfy vital safety constraints. T o avoid costly re training, we may
+desire to repair a previously trained reinforcement learni ng agent to ob-
+viate unsafe behaviour. We devise a counterexample-guided repair al-
+gorithm for repairing reinforcement learning systems leve raging safety
+critics. The algorithm jointly repairs a reinforcement lea rning agent and
+a safety critic using gradient-based constrained optimisa tion.
+Keywords: Reinforcement Learning · Safety · Repair.
+1 Introduction
+Deep Reinforcement Learning is at the core of several recent breakthroughs in
+AI [13,23,26]. With the increasing abilities of reinforcem ent learning agents, it
+becomes vital to eﬀectively constrain such agents to avoid h arm, particularly
+in safety-critical applications. A particularly eﬀective class of constraints are
+formal guarantees on the non-occurrence of undesired behav iour (safety). Such
+guarantees are obtainable through formal veriﬁcation [22] .
+Counterexample-guided repair is a successful iterative re ﬁnement algorithm
+for obtaining formally veriﬁed deep neural networks in supe rvised learning [6].
+The repair algorithm alternates searching counterexample s and modifying the
+model under repair to remove counterexamples. A central com ponent of the
+algorithm is a function that quantiﬁes the safety of a neural network output. In
+reinforcement learning, the safety of an output depends on t he interaction with
+the environment. Therefore, quantifying the safety of an ou tput is expensive,
+making it challenging to apply counterexample-guided repa ir to reinforcement
+learning. T o overcome this challenge, we propose to learn a s afety critic [5,18,31]
+to quantify safety . Since safety critics are themselves imp erfect machine learning
+models, we propose to repair the safety critic alongside the actual reinforcement
+learning agent.
+In the spirit of actor-critic reinforcement learning algor ithms [33], a safety
+critic learns to predict the safety of a state from gathered e xperience [5]. The
+idea of safety critics is analogous to the widely used [24,29 ] concept of value
+critics that learn to predict the value of a state from experi ence. W e can use
+recorded unsafe trajectories, coupled with safe trajector ies, as a starting point
+2 D. Boetius, S. Leue
+for learning a safety critic. Since our aim is to repair a reinforcement learning
+agent, we can assume that the agent was already found to behav e unsafely and,
+therefore, unsafe trajectories are available.
+When using a safety critic in counterexample-guided repair , it is vital that
+the safety critic correctly recognises new counterexample s as unsafe. Otherwise,
+counterexample-guided repair can not proceed to repair the reinforcement learn-
+ing agent. T o achieve this, we propose to iteratively repair the safety critic along-
+side the reinforcement learning agent, such that the safety critic correctly recog-
+nises newly found counterexamples.
+Our approach allows for great generality regarding the envi ronments in which
+an agent operates. Similarly , our approach does not restric t the class of safety
+speciﬁcations that can be repaired. It solely requires the a bility to falsify or verify
+the speciﬁcation given an agent and an environment. Even in t he absence of a
+falsiﬁer or veriﬁer, our approach can be used to repair a rein forcement learning
+agent whenever unsafe behaviour is detected.
+The following section reviews the literature relevant to th is paper. F ollow-
+ing this, we formally introduce safe reinforcement learnin g, safety critics, and
+counterexample-guided repair. The subsequent section des cribes our approach
+of counterexample-guided repair using safety critics in mo re detail and rigour.
+W e conclude with an outlook on future work. This includes an e xperimental
+evaluation.
+2 Related Work
+Reinforcement learning is the process by which an agent lear ns to solve a task by
+repeatedly interacting with an environment. The agent lean s by maximising the
+return it receives during the interaction. State-of-the-a rt algorithms for reinforce-
+ment learning include Advantage Actor-Critic (A2C) [24], A synchronous Ad-
+vantage Actor-Critic (A3C) [24], and Proximal Policy Optim isation (PPO) [29].
+These algorithms are based on deep neural networks as reinfo rcement learn-
+ing agents. Due to the prevalence of deep neural networks in s tate-of-the-art
+reinforcement learning methods, this paper is primarily co ncerned with deep
+reinforcement learning. However, our approach is not limit ed to this class of
+models.
+In safe reinforcement learning, the agent must also respect additional safety
+constraints. An overview of safe reinforcement learning is presented in [15].
+More recent developments include shielding [1], safe reinf orcement learning us-
+ing abstract interpretation [20,32], and safe reinforceme nt learning via safety
+critics [5,18,31,39]. In contrast to safe reinforcement le arning, the repair of re-
+inforcement learning agents is concerned with making an exi sting reinforcement
+agent safe. In this paper, we apply safety critics to repairi ng reinforcement learn-
+ing agents.
+V eriﬁcation of reinforcement learning systems is concerne d with proving that
+a reinforcement learning agent behaves safely . Recent appr oaches for reinforce-
+Counterexample-Guided Repair using Safety Critics 3
+ment learning veriﬁcation build upon reachability analysi s [3,19,37] and model
+checking [2,3,12]. A survey of the ﬁeld is provided by [22].
+In the domain of supervised learning, machine learning mode ls are veriﬁed
+using Satisﬁability Modulo Theories (SMT) solving [11,17, 21], Mixed Integer
+Linear Programming (MILP) [36], and Branch and Bound (BaB) [ 7,14,38,40].
+Many repair algorithms for supervised machine learning mod els are based on
+counterexample-guided repair [6]. The approaches for remo ving counterexam-
+ples range from augmenting the training set [28,34] and cons trained optimisa-
+tion [4,16] to specialised neural network architectures [8 ,16]. Non-iterative repair
+approaches for neural networks include [30,35].
+3 Preliminaries
+This section introduces Safe Reinforcement Learning, Safe ty Critics, V eriﬁca-
+tion, F alsiﬁcation, and Repair. While our algorithm’s envi sioned target is deep
+reinforcement learning agents (neural networks), our appr oach is not speciﬁc to
+a particular model class.
+3.1 Safe Reinforcement Learning
+F ollowing [5], we adopt a perspective on safe reinforcement learning where un-
+safe behaviour may occur during training but not when an agen t is deployed.
+Our assumption is that we can train the agent to behave safely in a simulation
+where unsafe behaviour is inconsequential. A safe reinforc ement learning task
+is formalised as a Constrained Markov Decision Process (CMD P). W e consider
+CMDPs with deterministic transitions.
+Deﬁnition 1 (CMDP). A Constrained Markov Decision Process (CMDP)
+with deterministic transitions is a tuple (S, A, P, R, S0, C), where S is the state
+space, A is the set of actions, P : S × A → S is the transition function , R :
+S × A → R is the reward, C ⊂ S is a set of safe states , and S0 ⊂ C is a set of
+initial states .
+For a ﬁnite time-horizon T ∈ N, τ = s0, a0, s1, a1, . . . , s T is a trajectory of
+a CMDP if s0 ∈ S 0 and st = P (st− 1, at− 1), ∀t ∈ { 1, . . . , T }.
+Deﬁnition 2 (Return). Given a discount factor γ ∈ [0, 1], the return G of a
+trajectory τ = s0, a0, s1, a1, . . . , s T is
+G(τ) =
+T − 1∑
+t=0
+γtR(st, at).
+Deﬁnition 3 (Safe T rajectories). For a set of safe states C, a trajectory τ =
+s0, a0, s1, a1, . . . , s T is safe if s0, s1, . . . , s T ∈ C . We write τ ⊨ C if τ is safe.
+4 D. Boetius, S. Leue
+Assuming a uniform distribution U(S0) over the initial states, our goal is to learn
+a (deterministic) parametric policy πθ : S → A that maximises the expected
+return while maintaining safety
+maximise
+θ
+Es0∼U (S0)[G(τ(s0, πθ ))]
+subject to τ(s0, πθ ) ⊨ C ∀ s0 ∈ S 0, (1)
+where τ(s0, πθ ) = s0, a0, s1, a1, . . . , s T is a trajectory with at = πθ (st), ∀t ∈
+{0, . . . , T − 1}.
+A parametric policy may be given, for example, by a neural net work netθ :
+Rn → A reading a numeric representation of a state xs ∈ Rn, n ∈ N, s ∈ S
+and returning an action a ∈ A . In this paper, we use the terms policy and agent
+interchangeably .
+3.2 Safety Critics
+Safety critics learn the safety value function V π θ
+C : S → R
+V π θ
+C (s) = min
+t∈{ 0,...,T }
+c(st), (2)
+where s0 = s, st = P (st− 1, πθ (st− 1)), ∀t ∈ { 1, . . . T }, and c : S → R is a
+satisfaction function [4] or robustness measure [9] for the safe set C.
+Deﬁnition 4 (Satisfaction F unction). A function c : S → R is a satisfaction
+function of a set C ⊆ S if ∀s ∈ S : c(s) ≥ 0 ⇔ s ∈ C .
+The concept of a safety critic is analogous to (value) critic s in actor-critic rein-
+forcement learning [33]. Classical (value) critics learn t he value of a state V π θ .
+The value is the expected return when starting in a state. Saf ety critics can be
+learned using the methods from [5,31,39].
+3.3 V eriﬁcation, F alsiﬁcation, and Repair
+Given a CMDP M = (S, A, P, R, S0, C) and a policy πθ , we are interested in the
+question whether the policy guarantees safety for all initi al states. A counterex-
+ample is an initial state for which following the policy leads to un safe states.
+Deﬁnition 5 (Counterexample). Given a policy πθ , a counterexample is an
+initial state s0 ∈ S 0, such that the trajectory τ = s0, a0, s1, a1, . . . , s T , T ∈ N
+with at = πθ (st− 1), ∀t ∈ { 1, . . . , T − 1} contains an unsafe state st /∈ C for
+some t ∈ { 1, . . . , T }.
+Since counterexamples lead to unsafe states, the safety val ue function V π θ
+C of a
+counterexample is negative.
+When considering algorithms for searching counterexample s, we diﬀerentiate
+between falsiﬁers and veriﬁers . While falsiﬁers are sound counterexample-search
+algorithms, veriﬁers are sound and complete.
+Counterexample-Guided Repair using Safety Critics 5
+Deﬁnition 6 (Soundness and Completeness). A counterexample-search al-
+gorithm is sound if it only produces genuine counterexamples. Additionally , an
+algorithm is complete if it terminates and produces a counterexample for every
+unsafe policy.
+Proposition 1. A policy πθ is safe whenever a veriﬁer does not produce a coun-
+terexample for πθ .
+Proof. Proposition 1 follows from contraposition on the completen ess of veriﬁers.
+Given an unsafe policy πθ , the task of repair is to modify the policy to be
+safe while maintaining high returns. A successful repair al gorithm for supervised
+learning is counterexample-guided repair [4,6,34]. The fo llowing section intro-
+duces a counterexample-guided repair algorithm for reinfo rcement learning.
+4 Counterexample-Guided Repair using Safety Critics
+Existing counterexample-guided repair algorithms repair supervised learning
+models by alternating counterexample search and counterex ample removal. Al-
+gorithm 1 describes the algorithmic skeleton of counterexa mple-guided repair.
+This skeleton is akin to all counterexample-guided repair a lgorithms.
+Algorithm 1: Counterexample-Guided Repair
+Input: CMDP M= ( S, A, P, R, S0, C), Policy πθ
+1 Sc ← ﬁnd counterexamples( M, π θ )
+2 do
+3 θ ← remove counterexamples( Sc, π θ , M)
+4 Sc ←S c ∪ﬁnd counterexamples( M, π θ )
+5 while ∃s0 ∈S c : s0 is counterexample
+When using a veriﬁer to ﬁnd counterexamples, Algorithm 1 is g uaranteed
+to produce a safe policy if it terminates [6]. However, Algor ithm 1 is not gen-
+erally guaranteed to terminate [6]. Despite this, countere xample-guided repair
+has proven successful in repairing deep neural networks [4] and other machine
+learning models [34].
+Algorithm 1 has two sub-procedures we need to instantiate fo r obtaining an
+executable algorithm: ﬁnding counterexamples and removin g counterexamples.
+F or ﬁnding counterexamples, we can use tools for verifying r einforcement learn-
+ing systems [2,3,12,19,37] (see [22] for a survey). In the re mainder of this paper,
+we address removing counterexamples using safety critics.
+6 D. Boetius, S. Leue
+4.1 Removing Counterexamples
+Similarly to the supervised setting [6], removing countere xamples corresponds
+to solving a constrained optimisation problem
+maximise
+θ
+Es0∼U (S0)[G(τ(s0, πθ ))]
+subject to τ(s0, πθ ) ⊨ C ∀ s0 ∈ S c, (3)
+where τ(s0, πθ ) is as in Equation (1) and Sc is a ﬁnite set of counterexamples.
+In the supervised setting, we can remove counterexamples by directly solving
+the analogue of Equation (3) using gradient-based optimisa tion algorithms [4].
+However, for repairing reinforcement learning policies, c hecking whether a set of
+parameters θ is feasible for Equation (3) is expensive, as it requires sim ulating
+the CMDP . Additionally , the term τ(s0, πθ ) ⊨ C suﬀers from exploding gradi-
+ents [27] due to the repeated application of πθ for obtaining the trajectory . These
+properties of Equation (3) hinder the application of gradie nt-based optimisation
+algorithms for removing counterexamples by solving Equati on (3) directly .
+T o obtain an algorithm for removing counterexamples, we ﬁrs t note that
+Equation (3) can equivalently be reformulated using the saf ety value function V π θ
+C
+from Equation (2). Concretely , we can replace the constrain t τ(s0, πθ ) ⊨ C
+by V π θ
+C (s0) > 0. Now, when approximating V π θ
+C using a safety critic ˜V π θ
+C , we
+obtain
+maximise
+θ
+Es0∼U (S0)[G(τ(s0, πθ ))]
+subject to ˜V π θ
+C (s0) ≥ 0 ∀s0 ∈ S c,
+(4)
+While Equation (4) is not equivalent to Equation (3) due to us ing an approxi-
+mation of V π θ
+C , Equation (4) can be solved using techniques such as stochas tic
+gradient descent/ascent [10] or the ℓ1 penalty function method [4,25]. T o ensure
+that solving Equation (4) actually removes counterexample s, we repair the safety
+critic ˜V π θ
+C alongside the policy .
+4.2 Repairing Safety Critics
+T o allow us to remove counterexamples by solving Equation (4 ), the safety
+critic ˜V π θ
+C needs to correctly recognise the counterexamples in Sc as coun-
+terexamples. By recognising a counterexample s0 as a counterexample, we mean
+that ˜V π θ
+C (s0) < 0. W e can ensure that the safety critic recognises all counter ex-
+amples in Sc by solving
+minimise
+θ
+J(˜V π θ
+C )
+subject to ˜V π θ
+C (s0) < 0 ∀s0 ∈ S c with V π θ
+C (s0) < 0,
+(5)
+where J(˜V π θ
+C ) is a loss function for training the safety critic [5,31,39]. Solving
+Equation (5) can itself be understood as removing counterex amples of the safety
+critic. As Equation (4), we can solve Equation (5) using stochastic gradient
+descent/ascent [10] or the ℓ1 penalty function method [4,25].
+Counterexample-Guided Repair using Safety Critics 7
+Algorithm 2: Counterexample Removal
+Input: CMDP M= ( S, A, P, R, S0, C), Unsafe policy πθ , Safety Critic ˜V π θ
+C ,
+Counterexamples Sc
+1 while ∃s0 ∈S c : s0 is counterexample do
+2 update ˜V π θ
+C by solving Equation (5)
+3 update πθ by solving Equation (4) using ˜V π θ
+C
+4.3 Counterexample Removal Algorithm
+W e propose jointly modifying the safety critic and the unsaf e reinforcement
+learning agent πθ . Algorithm 2 summarises our approach. W e ﬁrst update the
+safety critic to recognise the available counterexamples. This corresponds to
+solving Equation (5). Using the updated safety critic, we up date πθ to remove
+the counterexamples by solving Equation (4).
+Since the safety critic may fail to recognise a counterexamp le as a coun-
+terexample for the updated policy , we iterate the previous t wo steps until all
+counterexamples are removed.
+In principle, this procedure may fail to terminate if the saf ety-critic “forgets”
+to recognise the counterexamples of the initial policy when being updated in the
+second iteration of Algorithm 2. Since the policy is updated in the ﬁrst iteration
+of Algorithm 2, updating ˜V π θ
+C in the second iteration does not consider coun-
+terexamples for the initial policy . Therefore, the policy m ay revert to its initial
+parameters in the second iteration to evade the updated safe ty critic. This leads
+to an inﬁnite loop. However, this issue can be circumvented b y including pre-
+vious unsafe trajectories in Equation (5), similarly to how counterexamples are
+retained in Algorithm 1 for later iterations to counter rein troducing counterex-
+amples.
+5 Conclusion
+W e introduce a counterexample-guided repair algorithm for reinforcement learn-
+ing systems. W e leverage safety critics to circumvent costl y simulations during
+counterexample removal. Our approach applies to a wide rang e of speciﬁcations
+and can work with any veriﬁer and falsiﬁer. The central idea o f our approach is
+to repair the policy and the safety critic jointly .
+F uture work includes evaluating our algorithm experimenta lly and comparing
+it with abstract-interpretation-based safe reinforcemen t learning [20,32]. Since
+counterexample-guided repair avoids the abstraction erro r of abstract interpreta-
+tion, we expect that counterexample-guided repair can prod uce less conservative,
+safe reinforcement learning agents. Additionally , our ide as are not inherently lim-
+ited to reinforcement learning but can be applied whenever s atisfaction functions
+are unavailable or costly to compute. Exploring such applic ations is another di-
+rection for future research.
+8 D. Boetius, S. Leue
+Disclosure of Interests. The authors have no competing interests to declare that
+are relevant to the content of this article.
+References
+1. Alshiekh, M., Bloem, R., Ehlers, R., Könighofer, B., Niek um, S.,
+T opcu, U.: Safe reinforcement learning via shielding. In: M cIlraith, S.A.,
+Weinberger, K.Q. (eds.) AAAI. pp. 2669–2678. AAAI Press (20 18).
+https://doi.org/10.1609/AAAI.V32I1.11797
+2. Amir, G., Schapira, M., Katz, G.: T owards scalable veriﬁc ation of
+deep reinforcement learning. In: FMCAD. pp. 193–203. IEEE ( 2021).
+https://doi.org/10.34727/2021/ISBN.978-3-85448-046- 4_28
+3. Bacci, E., Giacobbe, M., Parker, D.: Verifying reinforce ment learning up
+to inﬁnity. In: Zhou, Z. (ed.) IJCAI. pp. 2154–2160. ijcai.o rg (2021).
+https://doi.org/10.24963/IJCAI.2021/297
+4. Bauer-Marquart, F., Boetius, D., Leue, S., Schilling, C. : SpecRepair: Counter-
+Example Guided Safety Repair of Deep Neural Networks. In: Le gunsen, O., Rosu,
+G. (eds.) SPIN. Lecture Notes in Computer Science, vol. 1325 5, pp. 79–96. Springer
+(2022). https://doi.org/10.1007/978-3-031-15077-7_5
+5. Bharadhwaj, H., Kumar, A., Rhinehart, N., Levine, S., Shk urti, F., Garg, A.:
+Conservative safety critics for exploration. In: ICLR. Ope nReview.net (2021),
+https://openreview.net/forum?id=iaO86DUuKi
+6. Boetius, D., Leue, S., Sutter, T.: A robust optimisation p erspective on
+counterexample-guided repair of neural networks. In: Krau se, A., Brunskill,
+E., Cho, K., Engelhardt, B., Sabato, S., Scarlett, J. (eds.) ICML. Proceed-
+ings of Machine Learning Research, vol. 202, pp. 2712–2737. PMLR (2023),
+https://proceedings.mlr.press/v202/boetius23a.html
+7. Bunel, R., Lu, J., T urkaslan, I., T orr, P .H.S., Kohli, P ., Kumar, M.P .: Branch and
+Bound for Piecewise Linear Neural Network Veriﬁcation. J. M ach. Learn. Res. 21,
+42:1–42:39 (2020), http://jmlr.org/papers/v21/19-468. html
+8. Dong, G., Sun, J., Wang, J., Wang, X., Dai, T.: T owards Repa ir-
+ing Neural Networks Correctly. In: QRS. pp. 714–725. IEEE (2 021).
+https://doi.org/10.1109/QRS54544.2021.00081
+9. Donzé, A., Maler, O.: Robust satisfaction of temporal log ic over real-
+valued signals. In: Chatterjee, K., Henzinger, T.A. (eds.) FORMATS. Lec-
+ture Notes in Computer Science, vol. 6246, pp. 92–106. Sprin ger (2010).
+https://doi.org/10.1007/978-3-642-15297-9_9
+10. Eban, E., Schain, M., Mackey, A., Gordon, A., Rifkin, R., Elidan, G.: Scalable
+Learning of Non-Decomposable Objectives. In: Singh, A., Zh u, X.J. (eds.) AIS-
+T ATS. Proceedings of Machine Learning Research, vol. 54, pp . 832–840. PMLR
+(2017), http://proceedings.mlr.press/v54/eban17a.htm l
+11. Ehlers, R.: F ormal Veriﬁcation of Piece-Wise Linear Fee d-Forward Neu-
+ral Networks. In: D’Souza, D., Kumar, K.N. (eds.) ATV A. Lect ure
+Notes in Computer Science, vol. 10482, pp. 269–286. Springe r (2017).
+https://doi.org/10.1007/978-3-319-68167-2_19
+12. Eliyahu, T., Kazak, Y., Katz, G., Schapira, M.: Verifyin g learning-augmented sys-
+tems. In: Kuipers, F.A., Caesar, M.C. (eds.) SIGCOMM. pp. 30 5–318. ACM (2021).
+https://doi.org/10.1145/3452296.3472936
+Counterexample-Guided Repair using Safety Critics 9
+13. F awzi, A., Balog, M., Huang, A., Hubert, T., Romera-Pare des, B., Barekatain,
+M., Novikov, A., R. Ruiz, F.J., Schrittwieser, J., Swirszcz , G., Sil-
+ver, D., Hassabis, D., Kohli, P .: Discovering faster matrix multiplica-
+tion algorithms with reinforcement learning. Nat. 610(7930), 47–53 (2022).
+https://doi.org/10.1038/s41586-022-05172-4
+14. F errari, C., Mueller, M.N., Jovanović, N., Vechev, M.: C omplete Veriﬁcation via
+Multi-Neuron Relaxation Guided Branch-and-Bound. In: ICL R. OpenReview.net
+(2022), https://openreview.net/forum?id=l_amHf1oaK
+15. García, J., F ernández, F.: A comprehensive survey on saf e rein-
+forcement learning. J. Mach. Learn. Res. 16, 1437–1480 (2015).
+https://doi.org/10.5555/2789272.2886795
+16. Guidotti, D., Leofante, F., Pulina, L., T acchella, A.: V eriﬁcation and Repair
+of Neural Networks: A Progress Report on Convolutional Mode ls. In: AI*IA.
+Lecture Notes in Computer Science, vol. 11946, pp. 405–417. Springer (2019).
+https://doi.org/10.1007/978-3-030-35166-3_29
+17. Guidotti, D., Leofante, F., T acchella, A., Castellini, C.: Improving reliability of
+myocontrol using formal veriﬁcation. IEEE T rans. Neural Sy st. Rehabilitation Eng.
+27(4), 564–571 (2019). https://doi.org/10.1109/TNSRE.201 9.2893152
+18. Hans, A., Schneegaß, D., Schäfer, A.M., Udluft, S.: Safe explo-
+ration for reinforcement learning. In: ESANN. pp. 143–148 ( 2008),
+https://www.esann.org/sites/default/ﬁles/proceedings/legacy/es2008-36.pdf
+19. Ivanov, R., Weimer, J., Alur, R., Pappas, G.J., Lee, I.: V erisig: verify-
+ing safety properties of hybrid systems with neural network controllers.
+In: Ozay, N., Prabhakar, P . (eds.) HSCC. pp. 169–178. ACM (20 19).
+https://doi.org/10.1145/3302504.3311806
+20. Jin, P ., Tian, J., Zhi, D., Wen, X., Zhang, M.: Trainify: A CEGAR-Driven Training
+and Veriﬁcation Framework for Safe Deep Reinforcement Lear ning. In: Shoham,
+S., Vizel, Y. (eds.) CA V(1). Lecture Notes in Computer Scien ce, vol. 13371, pp.
+193–218. Springer (2022). https://doi.org/10.1007/978- 3-031-13185-1_10
+21. Katz, G., Barrett, C.W., Dill, D.L., Julian, K.D., Koche nderfer, M.J.: Reluplex:
+An Eﬃcient SMT Solver for Verifying Deep Neural Networks. In : Majumdar, R.,
+Kuncak, V. (eds.) CA V (1). Lecture Notes in Computer Science , vol. 10426, pp.
+97–117. Springer (2017). https://doi.org/10.1007/978-3 -319-63387-9_5
+22. Landers, M., Doryab, A.: Deep reinforcement learning ve riﬁcation: A survey. ACM
+Comput. Surv. 55(14s), 330:1–330:31 (2023). https://doi.org/10.1145/35 96444
+23. Mankowitz, D.J., Michi, A., Zhernov, A., Gelmi, M., Selv i, M., Paduraru, C.,
+Leurent, E., Iqbal, S., Lespiau, J.B., Ahern, A., Köppe, T., Millikin, K., Gaﬀney,
+S., Elster, S., Broshear, J., Gamble, C., Milan, K., T ung, R. , Hwang, M., Cemgil,
+T., Barekatain, M., Li, Y., Mandhane, A., Hubert, T., Schrit twieser, J., Hassabis,
+D., Kohli, P ., Riedmiller, M., Vinyals, O., Silver, D.: F ast er sorting algorithms
+discovered using deep reinforcement learning. Nat. 618(7964), 257–263 (2023).
+https://doi.org/10.1038/s41586-023-06004-9
+24. Mnih, V., Badia, A.P ., Mirza, M., Graves, A., Lillicrap, T.P ., Harley, T.,
+Silver, D., Kavukcuoglu, K.: Asynchronous methods for deep reinforcement
+learning. In: Balcan, M., Weinberger, K.Q. (eds.) ICML. JML R Work-
+shop and Conference Proceedings, vol. 48, pp. 1928–1937. JM LR.org (2016),
+http://proceedings.mlr.press/v48/mniha16.html
+25. Nocedal, J., Wright, S.J.: Numerical Optimization. Spr inger, 2 edn. (2006).
+https://doi.org/10.1007/b98874
+26. OpenAI: Introducing ChatGPT (2022), https://openai.c om/blog/chatgpt, ac-
+cessed 14th March 2024
+10 D. Boetius, S. Leue
+27. Philipp, G., Song, D., Carbonell, J.G.: The exploding gr adient problem demys-
+tiﬁed - deﬁnition, prevalence, impact, origin, tradeoﬀs, a nd solutions. CoRR
+abs/1712.05577 (2017), http://arxiv.org/abs/1712.05577
+28. Pulina, L., T acchella, A.: An Abstraction-Reﬁnement Ap proach to Veriﬁcation of
+Artiﬁcial Neural Networks. In: CA V. Lecture Notes in Comput er Science, vol. 6174,
+pp. 243–257. Springer (2010). https://doi.org/10.1007/9 78-3-642-14295-6_24
+29. Schulman, J., Wolski, F., Dhariwal, P ., Radford, A., Kli mov, O.: Prox-
+imal policy optimization algorithms. CoRR abs/1707.06347 (2017),
+http://arxiv.org/abs/1707.06347
+30. Sotoudeh, M., Thakur, A.V.: Provable repair of deep neur al networks. In: PLDI.
+pp. 588–603. ACM (2021). https://doi.org/10.1145/345348 3.3454064
+31. Srinivasan, K., Eysenbach, B., Ha, S., T an, J., Finn, C.: Learning to
+be safe: Deep RL with a safety critic. CoRR abs/2010.14603 (2020),
+https://arxiv.org/abs/2010.14603
+32. Sun, X., Shoukry, Y.: Provably correct training of neura l network con-
+trollers using reachability analysis. CoRR abs/2102.10806 (2021),
+https://arxiv.org/abs/2102.10806
+33. Sutton, R.S., Barto, A.G.: Reinforcement Learning: An I ntroduction. Adap-
+tive computation and machine learning, MIT Press, Second ed n. (2018),
+https://mitpress.mit.edu/9780262039246/reinforcement-learning/
+34. T an, C., Zhu, Y., Guo, C.: Building veriﬁed neural networ ks with speciﬁcations
+for systems. In: Gunawi, H.S., Ma, X. (eds.) APSys. pp. 42–47 . ACM (2021).
+https://doi.org/10.1145/3476886.3477508
+35. T ao, Z., Nawas, S., Mitchell, J., Thakur, A.V.: Architec ture-preserving
+provable repair of deep neural networks. CoRR abs/2304.03496 (2023).
+https://doi.org/10.48550/arXiv.2304.03496
+36. Tjeng, V., Xiao, K.Y., T edrake, R.: Evaluating Robustne ss of Neural Networks
+with Mixed Integer Programming. In: ICLR (Poster). OpenRev iew.net (2019),
+https://openreview.net/forum?id=HyGIdiRqtm
+37. T ran, H., Yang, X., Lopez, D.M., Musau, P ., Nguyen, L.V., Xiang, W., Bak,
+S., Johnson, T.T.: NNV: The Neural Network Veriﬁcation Tool for Deep
+Neural Networks and Learning-Enabled Cyber-Physical Syst ems. In: CA V (1).
+Lecture Notes in Computer Science, vol. 12224, pp. 3–17. Spr inger (2020).
+https://doi.org/10.1007/978-3-030-53288-8_1
+38. Wang, S., Zhang, H., Xu, K., Lin, X., Jana, S., Hsieh, C., K olter, J.Z.: Beta-
+CROWN: Eﬃcient Bound Propagation with Per-neuron Split Con straints for
+Neural Network Robustness Veriﬁcation. In: Ranzato, M., Be ygelzimer, A.,
+Dauphin, Y.N., Liang, P ., Vaughan, J.W. (eds.) NeurIPS. pp. 29909–29921 (2021),
+https://proceedings.neurips.cc/paper/2021/hash/fac7fead96dafceaf80c1daﬀeae82a4-Abstract.html
+39. Yang, Q., Simão, T.D., Tindemans, S.H., Spaan, M.T.J.: S afety-constrained rein-
+forcement learning with a distributional safety critic. Ma ch. Learn. 112(3), 859–887
+(2023). https://doi.org/10.1007/S10994-022-06187-8
+40. Zhang, H., Wang, S., Xu, K., Li, L., Li, B., Jana, S., Hsieh , C., Kolter, J.Z.:
+General Cutting Planes for Bound-Propagation-Based Neura l Network Veriﬁca-
+tion. In: Oh, A.H., Agarwal, A., Belgrave, D., Cho, K. (eds.) NeurIPS (2022),
+https://openreview.net/forum?id=5haAJAcofjc
